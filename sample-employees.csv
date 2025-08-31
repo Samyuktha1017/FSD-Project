@@ -1,0 +1,4 @@
+name,email,phone,department,status
+Alice Johnson,alice@example.com,9999999999,Engineering,Active
+Bob Smith,bob@example.com,8888888888,HR,Inactive
+Carlos Diaz,carlos@example.com,7777777777,Sales,Active

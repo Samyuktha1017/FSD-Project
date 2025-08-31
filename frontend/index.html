@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Magnus CRUD Demo</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script crossorigin src="https://unpkg.com/@mui/material@5.15.20/umd/material-ui.development.js"></script>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #ddd; padding: 8px; }
+      th { background: #f4f4f4; text-align: left; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .menu { border: 1px solid #ddd; padding: 8px; border-radius: 8px; }
+      .pill { padding: 2px 8px; border: 1px solid #ccc; border-radius: 999px; background: #fafafa; }
+    </style>
+  </head>
+  <body>
+    <h2>Employees</h2>
+    <div id="root"></div>
+    <script type="text/javascript">
+      const e = React.createElement;
+      const API = (path, opts={}) => fetch((window.BACKEND || "http://127.0.0.1:8000") + path, opts);
+
+      function useAsync(fn, deps) {
+        const [state, set] = React.useState({loading: true});
+        React.useEffect(() => { let on = true; set({loading: true});
+          fn().then(v => on && set({loading: false, value: v})).catch(err => on && set({loading: false, error: err}));
+          return () => on = false;
+        }, deps);
+        return state;
+      }
+
+      function App(){
+        const [q, setQ] = React.useState("");
+        const [department, setDepartment] = React.useState("");
+        const [status, setStatus] = React.useState("");
+        const [sort, setSort] = React.useState("-id");
+        const [page, setPage] = React.useState(1);
+        const [pageSize, setPageSize] = React.useState(10);
+        const [selected, setSelected] = React.useState(new Set());
+
+        const state = useAsync(async () => {
+          const url = new URL((window.BACKEND || "http://127.0.0.1:8000") + "/api/employees");
+          const params = {page, page_size: pageSize};
+          if(q) params.q = q;
+          if(department) params.department = department;
+          if(status) params.status = status;
+          if(sort) params.sort = sort;
+          Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+          const res = await fetch(url);
+          return res.json();
+        }, [q, department, status, sort, page, pageSize]);
+
+        const items = state.value?.items || [];
+        const total = state.value?.total || 0;
+
+        async function createDummy(){
+          const name = prompt("Name?");
+          const email = prompt("Email?");
+          if(!name || !email) return;
+          await API("/api/employees", {method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({name, email, phone:"", department:"Engineering", status:"Active"})});
+          setPage(1); setQ(q + ""); // trigger refresh
+        }
+
+        async function editItem(it){
+          const name = prompt("New name", it.name);
+          if(name===null) return;
+          await API("/api/employees/" + it.id, {method:"PATCH", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({name})});
+          setQ(q + "");
+        }
+
+        async function removeItem(id){
+          if(!confirm("Delete employee " + id + "?")) return;
+          await API("/api/employees/" + id, {method:"DELETE"});
+          setQ(q + "");
+        }
+
+        async function bulkDelete(){
+          if(selected.size === 0) return alert("Select some rows");
+          if(!confirm("Bulk delete " + selected.size + " items?")) return;
+          const params = new URLSearchParams();
+          [...selected].forEach(id => params.append("ids", id));
+          await API("/api/employees/bulk-delete?" + params.toString(), {method:"POST"});
+          setSelected(new Set()); setQ(q + "");
+        }
+
+        async function exportCSV(){
+          const res = await API("/api/employees/export");
+          const text = await res.text();
+          const blob = new Blob([text], {type:"text/csv"});
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "employees.csv";
+          a.click();
+        }
+
+        async function importCSV(ev){
+          const file = ev.target.files[0];
+          if(!file) return;
+          const fd = new FormData();
+          fd.append("file", file);
+          await API("/api/employees/import", {method:"POST", body: fd});
+          ev.target.value = "";
+          setQ(q + "");
+        }
+
+        function toggleSelect(id){
+          const next = new Set(selected);
+          if(next.has(id)) next.delete(id); else next.add(id);
+          setSelected(next);
+        }
+
+        return e("div", {},
+          e("div", {className:"row", style:{marginBottom:12}},
+            e("input", {placeholder:"Search...", value:q, onChange:ev=>{setQ(ev.target.value); setPage(1);}}),
+            e("select", {value:department, onChange:e=>{setDepartment(e.target.value); setPage(1);}},
+              e("option", {value:""}, "All Departments"),
+              e("option", {value:"Engineering"}, "Engineering"),
+              e("option", {value:"HR"}, "HR"),
+              e("option", {value:"Sales"}, "Sales"),
+            ),
+            e("select", {value:status, onChange:e=>{setStatus(e.target.value); setPage(1);}},
+              e("option", {value:""}, "All Status"),
+              e("option", {value:"Active"}, "Active"),
+              e("option", {value:"Inactive"}, "Inactive"),
+              e("option", {value:"On Leave"}, "On Leave"),
+            ),
+            e("select", {value:sort, onChange:e=>setSort(e.target.value)},
+              e("option", {value:"-id"}, "Newest"),
+              e("option", {value:"name"}, "Name A→Z"),
+              e("option", {value:"-name"}, "Name Z→A"),
+              e("option", {value:"email"}, "Email A→Z"),
+              e("option", {value:"-email"}, "Email Z→A"),
+            ),
+            e("button", {onClick:createDummy}, "Add"),
+            e("div", {className:"menu"},
+              e("span", {className:"pill"}, "More"),
+              " ",
+              e("label", {className:"pill", style:{cursor:"pointer"}},
+                "Import CSV",
+                e("input", {type:"file", accept:".csv", style:{display:"none"}, onChange:importCSV})
+              ),
+              e("button", {className:"pill", onClick:exportCSV}, "Export CSV"),
+              e("button", {className:"pill", onClick:bulkDelete}, "Bulk Delete")
+            )
+          ),
+          state.loading ? e("div", {}, "Loading...") :
+          e("div", {},
+            e("table", {},
+              e("thead", {}, e("tr", {},
+                e("th", {}, "#"),
+                e("th", {}, e("input", {type:"checkbox", onChange:ev=>{
+                  if(ev.target.checked){ setSelected(new Set(items.map(x=>x.id)));}
+                  else setSelected(new Set());
+                }})),
+                e("th", {}, "Name"),
+                e("th", {}, "Email"),
+                e("th", {}, "Phone"),
+                e("th", {}, "Department"),
+                e("th", {}, "Status"),
+                e("th", {}, "Actions"),
+              )),
+              e("tbody", {},
+                items.map((it, idx) => e("tr", {key:it.id},
+                  e("td", {}, (state.value.page - 1) * state.value.page_size + idx + 1),
+                  e("td", {}, e("input", {type:"checkbox", checked:selected.has(it.id), onChange:()=>toggleSelect(it.id)})),
+                  e("td", {}, it.name),
+                  e("td", {}, it.email),
+                  e("td", {}, it.phone || ""),
+                  e("td", {}, it.department || ""),
+                  e("td", {}, it.status || ""),
+                  e("td", {}, 
+                    e("button", {onClick:()=>editItem(it)}, "Edit"),
+                    " ",
+                    e("button", {onClick:()=>removeItem(it.id)}, "Delete"),
+                  ),
+                ))
+              )
+            ),
+            e("div", {className:"row", style:{marginTop:8}},
+              e("span", {}, `Total: ${total}`),
+              e("button", {disabled: page<=1, onClick:()=>setPage(page-1)}, "Prev"),
+              e("span", {}, `Page ${page}`),
+              e("button", {disabled: page*pageSize >= total, onClick:()=>setPage(page+1)}, "Next"),
+              e("select", {value:pageSize, onChange:e=>{setPageSize(parseInt(e.target.value)); setPage(1);}},
+                e("option", {value:5}, "5"),
+                e("option", {value:10}, "10"),
+                e("option", {value:20}, "20"),
+                e("option", {value:50}, "50")
+              )
+            )
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+    </script>
+  </body>
+</html>
